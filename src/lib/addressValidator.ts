@@ -196,30 +196,38 @@ export class AddressValidator {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
-        const result = await supabase.functions.invoke(functionName, {
-          body: JSON.stringify(payload),
+        // Usar fetch directo en lugar de supabase.functions.invoke
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+          method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-          }
+            'Authorization': `Bearer ${anonKey}`,
+            'apikey': anonKey
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
         });
 
         clearTimeout(timeoutId);
 
-        if (result.error) {
-          lastError = result.error;
-          console.error(`${functionName} error (attempt ${attempt}):`, result.error);
+        if (!response.ok) {
+          const errorText = await response.text();
+          lastError = new Error(`HTTP ${response.status}: ${errorText}`);
+          console.error(`${functionName} error (attempt ${attempt}):`, lastError);
           
-          // Si es el último intento, retornar el error
           if (attempt === this.maxRetries) {
-            return { data: null, error: result.error };
+            return { data: null, error: lastError };
           }
           
-          // Esperar antes del siguiente intento
           await this.delay(1000 * attempt);
           continue;
         }
 
-        return { data: result.data, error: null };
+        const data = await response.json();
+        return { data, error: null };
 
       } catch (error) {
         lastError = error;

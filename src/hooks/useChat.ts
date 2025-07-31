@@ -185,7 +185,9 @@ export function useChat() {
     });
 
     try {
+      console.log('Starting location validation for:', confirmedAddress);
       const validationResult = await addressValidator.validateLocation(confirmedAddress);
+      console.log('Location validation result:', validationResult);
 
       if (validationResult.within_radius) {
         // ✅ Dentro del radio - continuar con pedido
@@ -239,6 +241,9 @@ export function useChat() {
         timestamp: new Date(),
         quickReplies: ['🔄 Reintentar', '📞 Hablar con agente']
       });
+      
+      // Resetear estado para permitir continuar
+      setChatState({ currentStep: 'initial' });
     }
   };
 
@@ -468,6 +473,9 @@ export function useChat() {
   };
 
   const sendMessage = useCallback(async (userMessage: string) => {
+    console.log('Sending message:', userMessage);
+    console.log('Current chat state:', chatState);
+    
     const newUserMessage: ChatMessage = {
       id: Date.now().toString(),
       message: userMessage,
@@ -482,6 +490,7 @@ export function useChat() {
 
     try {
       const specialResponse = await processSpecialCases(userMessage);
+      console.log('Special response result:', specialResponse);
       
       if (specialResponse && specialResponse !== "HANDLED") {
         const aiMessage: ChatMessage = {

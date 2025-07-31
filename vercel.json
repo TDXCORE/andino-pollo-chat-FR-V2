@@ -1,4 +1,6 @@
 {
+  "installCommand": "npm ci || (rm -rf node_modules package-lock.json && npm install --force)",
+  "buildCommand": "npm run build",
   "rewrites": [
     {
       "source": "/(.*)",

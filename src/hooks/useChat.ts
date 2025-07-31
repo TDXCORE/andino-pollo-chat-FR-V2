@@ -137,10 +137,34 @@ export function useChat() {
   };
 
   const handleAddressConfirmation = async (userResponse: string) => {
+    console.log('Processing address confirmation:', userResponse);
     const { pendingAddress } = chatState;
-    if (!pendingAddress) return;
+    if (!pendingAddress) {
+      console.log('No pending address found');
+      return;
+    }
 
-    if (userResponse.includes('Sí') || userResponse.includes('✅')) {
+    const lowerResponse = userResponse.toLowerCase();
+    
+    // Detectar confirmación positiva - ampliado para capturar más variaciones
+    const isConfirmation = lowerResponse.includes('sí') || 
+                         lowerResponse.includes('si') ||
+                         lowerResponse.includes('correcta') ||
+                         lowerResponse.includes('correcto') ||
+                         lowerResponse.includes('confirmado') ||
+                         lowerResponse.includes('confirmo') ||
+                         lowerResponse.includes('✅') ||
+                         lowerResponse.includes('ok') ||
+                         lowerResponse.includes('bien');
+
+    // Detectar rechazo
+    const isRejection = lowerResponse.includes('no') || 
+                       lowerResponse.includes('❌') ||
+                       lowerResponse.includes('incorrecto') ||
+                       lowerResponse.includes('incorrecta');
+
+    if (isConfirmation) {
+      console.log('User confirmed address, starting location validation');
       // Usuario confirmó la dirección
       const confirmedAddress = pendingAddress.suggestions[0];
       setChatState(prev => ({
@@ -151,7 +175,8 @@ export function useChat() {
       
       await validateDeliveryRadius(confirmedAddress);
       
-    } else if (userResponse.includes('No') || userResponse.includes('❌')) {
+    } else if (isRejection) {
+      console.log('User rejected address, asking for new one');
       // Usuario rechazó - pedir dirección de nuevo
       setChatState({ currentStep: 'waiting_for_address' });
       addMessage({
@@ -161,6 +186,7 @@ export function useChat() {
       });
       
     } else if (['1️⃣', '2️⃣', '3️⃣'].includes(userResponse)) {
+      console.log('User selected option:', userResponse);
       // Usuario seleccionó una opción específica
       const selectedIndex = parseInt(userResponse[0]) - 1;
       const selectedAddress = pendingAddress.suggestions[selectedIndex];
@@ -174,6 +200,15 @@ export function useChat() {
         
         await validateDeliveryRadius(selectedAddress);
       }
+    } else {
+      console.log('Response not recognized, prompting again');
+      // Respuesta no reconocida - pedir confirmación más clara
+      addMessage({
+        message: '🤔 No entendí tu respuesta. Por favor confirma:\n\n¿Es correcta esta dirección?\n\n• Escribe "Sí" para confirmar\n• Escribe "No" para corregir',
+        isUser: false,
+        timestamp: new Date(),
+        quickReplies: ['✅ Sí, es correcta', '❌ No, corregir']
+      });
     }
   };
 
@@ -247,6 +282,115 @@ export function useChat() {
     }
   };
 
+  const handleOrderInput = async (userMessage: string): Promise<string> => {
+    console.log('Processing order input:', userMessage);
+    
+    // Check if the message contains comma-separated data (nombre, telefono, producto)
+    if (userMessage.includes(',')) {
+      const parts = userMessage.split(',').map(p => p.trim());
+      
+      if (parts.length >= 2) {
+        const nombre = parts[0];
+        const telefono = parts[1];
+        const producto = parts[2] || 'pollo entero';
+        
+        // Validate phone number format
+        if (telefono.match(/\d{10}/)) {
+          // Calculate price based on product
+          let total = 15000;
+          const productoLower = producto.toLowerCase();
+          
+          if (productoLower.includes('pechuga')) total = 18000;
+          else if (productoLower.includes('muslos')) total = 12000;
+          else if (productoLower.includes('alas')) total = 8000;
+          else if (productoLower.includes('huevos aa')) total = 12000;
+          else if (productoLower.includes('huevos campesinos')) total = 8000;
+          
+          const numeroPedido = `PL${Date.now()}`;
+          
+          try {
+            // Register/update client
+            await supabase.from('clientes').upsert({
+              cedula: telefono,
+              nombre: nombre,
+              telefono: telefono,
+              email: `${nombre.toLowerCase().replace(/\s+/g, '')}@temp.com`,
+              puntos_acumulados: 0
+            });
+            
+            // Create order
+            const { error: pedidoError } = await supabase.from('pedidos').insert({
+              numero_pedido: numeroPedido,
+              cliente_cedula: telefono,
+              cliente_nombre: nombre,
+              cliente_telefono: telefono,
+              cliente_email: `${nombre.toLowerCase().replace(/\s+/g, '')}@temp.com`,
+              direccion_entrega: chatState.deliveryInfo!.address.formatted,
+              latitud_entrega: chatState.deliveryInfo!.address.coordinates.lat,
+              longitud_entrega: chatState.deliveryInfo!.address.coordinates.lng,
+              sede_asignada: chatState.deliveryInfo!.sede.id,
+              validacion_geografica: true,
+              distancia_metros: chatState.deliveryInfo!.distance,
+              productos: { detalle: producto, precio_unitario: total },
+              total: total,
+              estado: 'pendiente_pago'
+            });
+
+            if (!pedidoError) {
+              const linkPago = `https://pagos.pollosandino.com/pagar/${numeroPedido}`;
+              
+              // Reset state to allow new orders
+              setChatState({ currentStep: 'initial' });
+              
+              return `¡Listo ${nombre}! 🐔\n\n` +
+                     `**Pedido #${numeroPedido}**\n` +
+                     `${producto.charAt(0).toUpperCase() + producto.slice(1)} - $${total.toLocaleString('es-CO')}\n\n` +
+                     `📍 **Entrega en:** ${chatState.deliveryInfo!.address.formatted}\n` +
+                     `🏪 **Desde sede:** ${chatState.deliveryInfo!.sede.nombre}\n` +
+                     `📏 **Distancia:** ${formatDistance(chatState.deliveryInfo!.distance)}\n` +
+                     `⏰ **Tiempo estimado:** ${chatState.deliveryInfo!.sede.nombre.includes('Bogotá') ? '25-35' : '30-40'} minutos\n\n` +
+                     `💳 **Link de pago:**\n${linkPago}\n\n` +
+                     `¿Algo más en lo que pueda ayudarte?`;
+            } else {
+              return `❌ Error al crear el pedido. Llámanos al ${chatState.deliveryInfo?.sede.telefono || '(4) 123-4567'}`;
+            }
+          } catch (error) {
+            console.error('Error creating order:', error);
+            return `❌ Error al crear el pedido. Llámanos al ${chatState.deliveryInfo?.sede.telefono || '(4) 123-4567'}`;
+          }
+        } else {
+          return `📱 El teléfono debe tener 10 dígitos. Por favor intenta de nuevo:\n\n📝 Formato: nombre, teléfono, producto\n💡 Ejemplo: Juan Pérez, 3001234567, pollo entero`;
+        }
+      } else {
+        return `📝 Necesito más información. Por favor usa este formato:\n\n**nombre, teléfono, producto**\n💡 Ejemplo: Juan Pérez, 3001234567, pollo entero`;
+      }
+    } else {
+      // Handle single responses or quick replies
+      if (userMessage.toLowerCase().includes('productos disponibles') || userMessage.toLowerCase().includes('ver productos')) {
+        try {
+          const { data: productos } = await supabase
+            .from('productos')
+            .select('*')
+            .eq('activo', true);
+
+          if (productos && productos.length > 0) {
+            let response = '🐔 **PRODUCTOS DISPONIBLES:**\n\n';
+            productos.forEach(prod => {
+              const disponible = prod.stock > 0 ? '✅ Disponible' : '❌ Agotado';
+              response += `**${prod.nombre}**: $${prod.precio.toLocaleString('es-CO')} - ${disponible}\n`;
+            });
+            response += '\n📝 Para hacer tu pedido, escribe:\n**nombre, teléfono, producto**\n💡 Ejemplo: Juan Pérez, 3001234567, pollo entero';
+            return response;
+          }
+        } catch (error) {
+          return 'Error consultando productos. Llámanos al (4) 123-4567';
+        }
+      }
+      
+      return `📝 Para continuar con tu pedido, necesito estos datos en este formato:\n\n**nombre, teléfono, producto**\n💡 Ejemplo: Juan Pérez, 3001234567, pollo entero\n\n🍗 O escribe "ver productos" para ver el menú disponible`;
+    }
+  };
+
   // === LÓGICA EXISTENTE MODIFICADA ===
 
   const processSpecialCases = async (userMessage: string): Promise<string | null> => {
@@ -275,87 +419,25 @@ export function useChat() {
       return "HANDLED";
     }
 
-    // 1. PROCESAMIENTO DE PEDIDO CON VALIDACIÓN GEOGRÁFICA
-    if (userMessage.includes(',') && chatState.currentStep !== 'waiting_for_address') {
+    if (chatState.currentStep === 'taking_order') {
+      return await handleOrderInput(userMessage);
+    }
+
+    // Handle order input from users who haven't gone through address validation
+    if (userMessage.includes(',') && chatState.currentStep === 'initial') {
       const parts = userMessage.split(',').map(p => p.trim());
       
       if (parts.length >= 2) {
         const nombre = parts[0];
-        const telefono = parts[1];
         
-        // Si no hay dirección confirmada, pedirla
-        if (!chatState.deliveryInfo) {
-          addMessage({
-            message: `Perfecto ${nombre}, ahora necesito tu dirección completa para verificar si hacemos entrega en tu zona.\n\n📝 Por favor escribe tu dirección completa:\n💡 Ejemplo: Carrera 15 # 93-07, Chapinero, Bogotá`,
-            isUser: false,
-            timestamp: new Date()
-          });
-          
-          setChatState({ currentStep: 'waiting_for_address' });
-          return "HANDLED";
-        }
-
-        // Si ya tiene dirección confirmada, proceder con el pedido
-        const direccion = chatState.deliveryInfo.address.formatted;
-        const producto = parts[2] || 'pollo entero';
+        addMessage({
+          message: `Perfecto ${nombre}, ahora necesito tu dirección completa para verificar si hacemos entrega en tu zona.\n\n📝 Por favor escribe tu dirección completa:\n💡 Ejemplo: Carrera 15 # 93-07, Chapinero, Bogotá`,
+          isUser: false,
+          timestamp: new Date()
+        });
         
-        if (telefono.match(/\d{10}/)) {
-          let total = 15000;
-          
-          if (producto.toLowerCase().includes('pechuga')) total = 18000;
-          else if (producto.toLowerCase().includes('muslos')) total = 12000;
-          else if (producto.toLowerCase().includes('alas')) total = 8000;
-          else if (producto.toLowerCase().includes('huevos aa')) total = 12000;
-          else if (producto.toLowerCase().includes('huevos campesinos')) total = 8000;
-          
-          const numeroPedido = `PL${Date.now()}`;
-          
-          try {
-            await supabase.from('clientes').upsert({
-              cedula: telefono,
-              nombre: nombre,
-              telefono: telefono,
-              email: `${nombre.toLowerCase().replace(/\s+/g, '')}@temp.com`,
-              puntos_acumulados: 0
-            });
-            
-            const { error: pedidoError } = await supabase.from('pedidos').insert({
-              numero_pedido: numeroPedido,
-              cliente_cedula: telefono,
-              cliente_nombre: nombre,
-              cliente_telefono: telefono,
-              cliente_email: `${nombre.toLowerCase().replace(/\s+/g, '')}@temp.com`,
-              direccion_entrega: direccion,
-              latitud_entrega: chatState.deliveryInfo.address.coordinates.lat,
-              longitud_entrega: chatState.deliveryInfo.address.coordinates.lng,
-              sede_asignada: chatState.deliveryInfo.sede.id,
-              validacion_geografica: true,
-              distancia_metros: chatState.deliveryInfo.distance,
-              productos: { detalle: producto, precio_unitario: total },
-              total: total,
-              estado: 'pendiente_pago'
-            });
-
-            if (!pedidoError) {
-              const linkPago = `https://pagos.pollosandino.com/pagar/${numeroPedido}`;
-              
-              // Resetear estado para permitir nuevos pedidos
-              setChatState({ currentStep: 'initial' });
-              
-              return `¡Listo ${nombre}! 🐔\n\n` +
-                     `**Pedido #${numeroPedido}**\n` +
-                     `${producto.charAt(0).toUpperCase() + producto.slice(1)} - $${total.toLocaleString('es-CO')}\n\n` +
-                     `📍 **Entrega en:** ${direccion}\n` +
-                     `🏪 **Desde sede:** ${chatState.deliveryInfo.sede.nombre}\n` +
-                     `📏 **Distancia:** ${formatDistance(chatState.deliveryInfo.distance)}\n` +
-                     `⏰ **Tiempo estimado:** ${chatState.deliveryInfo.sede.nombre.includes('Bogotá') ? '25-35' : '30-40'} minutos\n\n` +
-                     `💳 **Link de pago:**\n${linkPago}\n\n` +
-                     `¿Algo más en lo que pueda ayudarte?`;
-            }
-          } catch (error) {
-            return `❌ Error al crear el pedido. Llámanos al ${chatState.deliveryInfo?.sede.telefono || '(4) 123-4567'}`;
-          }
-        }
+        setChatState({ currentStep: 'waiting_for_address' });
+        return "HANDLED";
       }
     }
 

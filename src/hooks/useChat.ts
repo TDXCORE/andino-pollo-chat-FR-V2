@@ -50,6 +50,19 @@ export function useChat() {
   const [chatState, setChatState] = useState<ChatState>({ currentStep: 'initial' });
   const { toast } = useToast();
 
+  // Auto-reset del estado después de 5 minutos de inactividad
+  const resetChatStateTimeout = () => {
+    setTimeout(() => {
+      setChatState(prev => {
+        if (prev.currentStep !== 'initial') {
+          console.log('Auto-resetting chat state due to inactivity');
+          return { currentStep: 'initial' };
+        }
+        return prev;
+      });
+    }, 300000); // 5 minutos
+  };
+
   const addMessage = (message: Omit<ChatMessage, 'id'>) => {
     const newMessage: ChatMessage = {
       ...message,
@@ -92,6 +105,8 @@ export function useChat() {
         timestamp: new Date(),
         quickReplies: ['🔄 Intentar de nuevo', '📞 Hablar con agente']
       });
+      // Resetear estado para permitir otras consultas
+      setChatState({ currentStep: 'initial' });
     }
   };
 
@@ -231,6 +246,18 @@ export function useChat() {
 
   const processSpecialCases = async (userMessage: string): Promise<string | null> => {
     const lowerMessage = userMessage.toLowerCase();
+
+    // Comando de escape: permitir salir del flujo de direcciones
+    if (['cancelar', 'salir', 'menu', 'inicio', 'volver'].some(cmd => lowerMessage.includes(cmd))) {
+      setChatState({ currentStep: 'initial' });
+      return "¡Perfecto! ¿En qué más puedo ayudarte?\n\n• 🍗 Ver productos\n• 📍 Pedido a domicilio\n• ⭐ Consultar puntos\n• 🏪 Ver sedes";
+    }
+
+    // Manejo específico de "Cambiar dirección"
+    if (lowerMessage.includes('cambiar dirección') || lowerMessage.includes('cambiar direccion')) {
+      setChatState({ currentStep: 'waiting_for_address' });
+      return "📝 Perfecto, escribe tu nueva dirección completa:\n\n💡 Ejemplo: Carrera 15 # 93-07, Chapinero, Bogotá";
+    }
 
     // Manejo de estados de dirección
     if (chatState.currentStep === 'waiting_for_address') {

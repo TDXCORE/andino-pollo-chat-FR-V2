@@ -197,7 +197,7 @@ export class AddressValidator {
         const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
         const result = await supabase.functions.invoke(functionName, {
-          body: payload,
+          body: JSON.stringify(payload),
           headers: {
             'Content-Type': 'application/json',
           }

@@ -2,5 +2,5 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "installCommand": "npm install --force"
+  "installCommand": "rm -rf node_modules package-lock.json && npm install"
 }

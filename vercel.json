@@ -2,13 +2,5 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "installCommand": "npm install --force",
-  "functions": {
-    "app/api/[...route].js": {
-      "runtime": "nodejs18.x"
-    }
-  },
-  "env": {
-    "NODE_VERSION": "18"
-  }
+  "installCommand": "npm install --force"
 }

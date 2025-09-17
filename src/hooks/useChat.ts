@@ -372,15 +372,46 @@ export function useChat() {
 
   const handleOrderInput = async (userMessage: string): Promise<string> => {
     console.log('Processing order input:', userMessage);
-    
-    // Check if the message contains comma-separated data (nombre, telefono, producto)
+
+    // Try to extract order data with or without commas
+    let nombre = '';
+    let telefono = '';
+    let producto = '';
+
     if (userMessage.includes(',')) {
+      // Format with commas: "nombre, telefono, producto"
       const parts = userMessage.split(',').map(p => p.trim());
-      
       if (parts.length >= 2) {
-        const nombre = parts[0];
-        const telefono = parts[1];
-        const producto = parts[2] || 'pollo entero';
+        nombre = parts[0];
+        telefono = parts[1];
+        producto = parts[2] || 'pollo entero';
+      }
+    } else {
+      // Format without commas: extract using patterns
+      // Pattern: "name phone_number product_description"
+      const phoneMatch = userMessage.match(/\b\d{10}\b/); // 10-digit phone number
+
+      if (phoneMatch) {
+        telefono = phoneMatch[0];
+        const phoneIndex = userMessage.indexOf(telefono);
+
+        // Extract name (everything before phone number)
+        nombre = userMessage.substring(0, phoneIndex)
+          .replace(/^(claro\s+que\s+si\s+|si\s+claro\s+|perfecto\s+|ok\s+|bueno\s+)/i, '') // Remove common phrases
+          .trim();
+
+        // Extract product (everything after phone number)
+        const afterPhone = userMessage.substring(phoneIndex + telefono.length).trim();
+
+        // Clean up product description
+        producto = afterPhone
+          .replace(/^(y\s+)?(quiero|deseo|necesito|solicito)\s+/i, '') // Remove "y quiero", "deseo", etc.
+          .replace(/\s+por\s+favor\s*$/i, '') // Remove "por favor" at the end
+          .trim() || 'pollo entero';
+      }
+    }
+
+    if (nombre && telefono && producto) {
         
         // Validate phone number format
         if (telefono.match(/\d{10}/)) {

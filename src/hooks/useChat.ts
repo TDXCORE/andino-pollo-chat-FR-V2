@@ -2,10 +2,11 @@ import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { addressValidator, formatDistance } from "@/lib/addressValidator";
-import type { 
-  ChatState, 
-  AddressSuggestion, 
-  AddressValidationResult, 
+import { detectarCiudadEnMensaje } from "@/lib/utils";
+import type {
+  ChatState,
+  AddressSuggestion,
+  AddressValidationResult,
   LocationValidationResult,
   ChatMessage
 } from "@/types/address";
@@ -527,26 +528,43 @@ export function useChat() {
       }
     }
 
-    // 4. CONSULTA DE SEDES (MANTENER LÓGICA EXISTENTE)
-    if (lowerMessage.includes('sede') || lowerMessage.includes('dirección') || lowerMessage.includes('direccion') || 
+    // 4. CONSULTA DE SEDES - CON FILTRADO POR CIUDAD
+    if (lowerMessage.includes('sede') || lowerMessage.includes('dirección') || lowerMessage.includes('direccion') ||
         lowerMessage.includes('ubicación') || lowerMessage.includes('ubicacion') || lowerMessage.includes('horario') ||
-        lowerMessage.includes('medellín') || lowerMessage.includes('medellin') || lowerMessage.includes('bogotá') || 
+        lowerMessage.includes('medellín') || lowerMessage.includes('medellin') || lowerMessage.includes('bogotá') ||
         lowerMessage.includes('bogota') || lowerMessage.includes('cali') || lowerMessage.includes('barranquilla')) {
       try {
-        const { data: sedes } = await supabase
-          .from('sedes')
-          .select('*')
-          .eq('activa', true);
+        // Detectar ciudad específica en el mensaje
+        const ciudadDetectada = detectarCiudadEnMensaje(lowerMessage);
+        console.log('Consulta de sedes - Ciudad detectada:', ciudadDetectada);
+
+        // Construir consulta base
+        let query = supabase.from('sedes').select('*').eq('activa', true);
+
+        // Si se detectó una ciudad específica, filtrar por ella
+        if (ciudadDetectada) {
+          query = query.ilike('ciudad', `%${ciudadDetectada}%`);
+          console.log(`Filtrando sedes por ciudad: ${ciudadDetectada}`);
+        }
+
+        const { data: sedes } = await query;
 
         if (sedes && sedes.length > 0) {
-          let response = '📍 **NUESTRAS SEDES:**\n\n';
+          const tituloSedes = ciudadDetectada
+            ? `📍 **SEDES EN ${ciudadDetectada.toUpperCase()}:**\n\n`
+            : '📍 **NUESTRAS SEDES:**\n\n';
+
+          let response = tituloSedes;
           sedes.forEach(sede => {
             response += `**${sede.nombre}**\n🏠 ${sede.direccion}\n⏰ ${sede.horario}\n📞 ${sede.telefono}\n\n`;
           });
           response += '¿Te ayudo con algo más?';
           return response;
+        } else if (ciudadDetectada) {
+          return `😔 No encontré sedes activas en ${ciudadDetectada}. Nuestras sedes disponibles están en:\n\n• Medellín\n• Bogotá\n• Cali\n• Barranquilla\n\n¿Te interesa alguna de estas ciudades?`;
         }
       } catch (error) {
+        console.error('Error consultando sedes:', error);
         return 'Error consultando sedes. Llámanos al (4) 123-4567';
       }
     }

@@ -24,7 +24,6 @@ interface SedeWithDistance {
   latitud: number;
   longitud: number;
   radio_cobertura: number;
-  factor_urbano: number;
   distance_meters: number;
   within_radius: boolean;
 }
@@ -60,15 +59,15 @@ serve(async (req) => {
 
   try {
     const { latitude, longitude, formatted_address, session_id }: LocationValidationRequest = await req.json();
-    
+
     // Validar entrada
     if (!latitude || !longitude || !formatted_address) {
       return new Response(JSON.stringify({
         error: 'Faltan parámetros requeridos: latitude, longitude, formatted_address',
         within_radius: false
-      }), { 
+      }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
@@ -82,17 +81,17 @@ serve(async (req) => {
         validated_address: formatted_address
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     console.log('Validating location:', { latitude, longitude, formatted_address });
 
-    // 1. Consultar todas las sedes activas con coordenadas y factor urbano
+    // 1. Consultar todas las sedes activas con coordenadas
     const { data: sedes, error: sedesError } = await supabase
       .from('sedes')
-      .select('*, factor_urbano')
+      .select('*')
       .eq('activa', true)
       .not('latitud', 'is', null)
       .not('longitud', 'is', null);
@@ -109,28 +108,25 @@ serve(async (req) => {
         within_radius: false,
         coverage_available: false,
         validated_address: formatted_address
-      }), { 
+      }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
     console.log(`Found ${sedes.length} active sedes with coordinates`);
 
-    // 2. Calcular distancias a todas las sedes con factor urbano
+    // 2. Calcular distancias a todas las sedes
     const sedesWithDistance: SedeWithDistance[] = sedes.map(sede => {
-      const urbanFactor = sede.factor_urbano || 1.0; // Factor por defecto
-      const distance = calculateDistanceWithUrbanFactor(
+      const distance = calculateDistance(
         latitude, longitude,
-        sede.latitud, sede.longitud,
-        urbanFactor
+        sede.latitud, sede.longitud
       );
 
       const radioCobertura = sede.radio_cobertura || 5000; // Default 5km
 
       return {
         ...sede,
-        factor_urbano: urbanFactor,
         distance_meters: distance,
         within_radius: distance <= radioCobertura
       };
@@ -139,10 +135,8 @@ serve(async (req) => {
     // 3. Ordenar por distancia
     sedesWithDistance.sort((a, b) => a.distance_meters - b.distance_meters);
 
-    console.log('Sedes with distances (urban adjusted):', sedesWithDistance.map(s => ({
+    console.log('Sedes with distances:', sedesWithDistance.map(s => ({
       nombre: s.nombre,
-      ciudad: s.ciudad,
-      factor_urbano: s.factor_urbano,
       distance: s.distance_meters,
       within_radius: s.within_radius
     })));
@@ -220,34 +214,18 @@ function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
   return Math.round(distance);
 }
 
-function calculateDistanceWithUrbanFactor(
-  lat1: number, lng1: number,
-  lat2: number, lng2: number,
-  urbanFactor: number = 1.0
-): number {
-  // Calcular distancia base usando fórmula de Haversine
-  const baseDistance = calculateDistance(lat1, lng1, lat2, lng2);
-
-  // Aplicar factor urbano con límites razonables (máximo 3.0)
-  const adjustedDistance = baseDistance * Math.min(urbanFactor, 3.0);
-
-  console.log(`Distance calculation: base=${baseDistance}m, factor=${urbanFactor}, adjusted=${Math.round(adjustedDistance)}m`);
-
-  return Math.round(adjustedDistance);
-}
-
 function calculateDeliveryTime(distanceMeters: number): string {
   // Cálculo de tiempo estimado de entrega
   const baseTime = 15; // minutos base de preparación
   const timePerKm = 5;  // 5 minutos adicionales por kilómetro
-  
+
   const distanceKm = distanceMeters / 1000;
   const totalTime = baseTime + (distanceKm * timePerKm);
-  
+
   // Rangos de tiempo con un poco de variabilidad
   const minTime = Math.max(20, Math.round(totalTime - 5));
   const maxTime = Math.round(totalTime + 10);
-  
+
   return `${minTime}-${maxTime} minutos`;
 }
 
@@ -260,7 +238,7 @@ function isWithinColombiaBounds(lat: number, lng: number): boolean {
     east: -66.8,  // Guainía
     west: -84.8   // Nariño (Pacífico)
   };
-  
-  return lat >= bounds.south && lat <= bounds.north && 
+
+  return lat >= bounds.south && lat <= bounds.north &&
          lng >= bounds.west && lng <= bounds.east;
 }

@@ -19,7 +19,7 @@ export interface AddressValidationResult {
   isValid: boolean;
   suggestions: AddressSuggestion[];
   fromCache: boolean;
-  error?: 'INVALID_FORMAT' | 'NOT_FOUND' | 'INTERNAL_ERROR';
+  error?: 'INVALID_FORMAT' | 'NOT_FOUND' | 'INTERNAL_ERROR' | 'INTERNATIONAL_ADDRESS';
 }
 
 export interface SedeInfo {
@@ -101,7 +101,8 @@ export const ERROR_MESSAGES = {
   INVALID_FORMAT: '🤔 Tu dirección es muy general. Por favor incluye más detalles como el número de la casa y el barrio.\n\n💡 Ejemplo: Carrera 15 # 93-07, Chapinero, Bogotá',
   NOT_FOUND: '❌ No encontré esa dirección. ¿Podrías verificar la ortografía y incluir más detalles?',
   INTERNAL_ERROR: '⚠️ Tengo problemas verificando la dirección. ¿Podrías intentar de nuevo?',
-  OUTSIDE_COLOMBIA: '🌎 Solo hacemos entregas dentro de Colombia. ¿La dirección está en el país?'
+  OUTSIDE_COLOMBIA: '🌎 Solo hacemos entregas dentro de Colombia. ¿La dirección está en el país?',
+  INTERNATIONAL_ADDRESS: '🌍 Detecté que esta dirección está fuera de Colombia. Solo realizamos entregas dentro del territorio nacional.\n\n¿Podrías proporcionar una dirección en Colombia?'
 } as const;
 
 // Tipos para configuración de geocodificación

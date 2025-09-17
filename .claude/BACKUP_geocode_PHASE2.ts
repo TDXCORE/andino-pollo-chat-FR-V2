@@ -29,7 +29,7 @@ interface GeocodeResponse {
   isValid: boolean;
   suggestions: AddressSuggestion[];
   fromCache: boolean;
-  error?: 'INVALID_FORMAT' | 'NOT_FOUND' | 'INTERNAL_ERROR' | 'INTERNATIONAL_ADDRESS';
+  error?: 'INVALID_FORMAT' | 'NOT_FOUND' | 'INTERNAL_ERROR';
 }
 
 serve(async (req) => {
@@ -40,7 +40,7 @@ serve(async (req) => {
 
   try {
     const { address, session_id }: GeocodeRequest = await req.json();
-    
+
     // Validar entrada
     if (!address || typeof address !== 'string') {
       return new Response(JSON.stringify({
@@ -50,11 +50,11 @@ serve(async (req) => {
         error: 'INVALID_FORMAT'
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const googleApiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
-    
+
     if (!googleApiKey) {
       console.error('Google Maps API key not configured');
       return new Response(JSON.stringify({
@@ -62,31 +62,17 @@ serve(async (req) => {
         suggestions: [],
         fromCache: false,
         error: 'INTERNAL_ERROR'
-      }), { 
+      }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
-    
+
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // 1. Limpiar y normalizar dirección
     const cleanAddress = cleanAddressInput(address);
     console.log('Cleaned address:', cleanAddress);
-
-    // 1.1. Detectar direcciones internacionales obvias ANTES de API
-    const internationalCheck = detectInternationalAddress(cleanAddress);
-    if (internationalCheck.isInternational) {
-      console.log('International address detected:', internationalCheck.country);
-      return new Response(JSON.stringify({
-        isValid: false,
-        suggestions: [],
-        fromCache: false,
-        error: 'INTERNATIONAL_ADDRESS',
-        detectedCountry: internationalCheck.country,
-        message: internationalCheck.message
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
 
     // 2. Verificar caché primero
     const { data: cached } = await supabase
@@ -148,31 +134,20 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // 5. Procesar y filtrar resultados - Validación mejorada de país
+    // 5. Procesar y filtrar resultados
     const suggestions: AddressSuggestion[] = data.results
       .slice(0, 3) // Máximo 3 sugerencias
       .filter((result: any) => {
-        // Validación robusta de país
+        // Filtrar solo direcciones en Colombia
         const countryComponent = result.address_components?.find((comp: any) =>
           comp.types.includes('country')
         );
-
-        const isInColombia = countryComponent?.short_name === 'CO' ||
-                            countryComponent?.long_name?.toLowerCase().includes('colombia');
-
-        if (!isInColombia) {
-          console.log('Filtering out non-Colombian result:', {
-            formatted_address: result.formatted_address,
-            country: countryComponent?.long_name || 'Unknown'
-          });
-        }
-
-        return isInColombia;
+        return countryComponent?.short_name === 'CO';
       })
       .map((result: any) => {
         const confidence = calculateConfidence(cleanAddress, result.formatted_address);
         const components = extractAddressComponents(result.address_components);
-        
+
         return {
           formatted: result.formatted_address,
           placeId: result.place_id,
@@ -265,10 +240,10 @@ function stringSimilarity(str1: string, str2: string): number {
 
 function levenshteinDistance(str1: string, str2: string): number {
   const matrix = Array(str2.length + 1).fill(null).map(() => Array(str1.length + 1).fill(null));
-  
+
   for (let i = 0; i <= str1.length; i++) matrix[0][i] = i;
   for (let j = 0; j <= str2.length; j++) matrix[j][0] = j;
-  
+
   for (let j = 1; j <= str2.length; j++) {
     for (let i = 1; i <= str1.length; i++) {
       const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
@@ -279,7 +254,7 @@ function levenshteinDistance(str1: string, str2: string): number {
       );
     }
   }
-  
+
   return matrix[str2.length][str1.length];
 }
 
@@ -304,59 +279,4 @@ function extractAddressComponents(components: any[]): any {
   });
 
   return result;
-}
-
-function detectInternationalAddress(address: string): {
-  isInternational: boolean;
-  country?: string;
-  message?: string;
-} {
-  const lowercaseAddress = address.toLowerCase();
-
-  // Patrones de países y ciudades internacionales comunes
-  const internationalPatterns = [
-    // Estados Unidos
-    { pattern: /\b(new york|manhattan|brooklyn|los angeles|miami|chicago|houston|phoenix|philadelphia|san antonio|san diego|dallas|san jose|austin|jacksonville|fort worth|columbus|charlotte|detroit|el paso|seattle|denver|washington dc|boston|nashville|baltimore|oklahoma city|portland|las vegas|louisville|milwaukee|albuquerque|tucson|fresno|sacramento|mesa|kansas city|atlanta|long beach|colorado springs|raleigh|virginia beach|omaha|minneapolis|tulsa|cleveland|wichita|arlington)\b/i, country: 'Estados Unidos', message: '🇺🇸 Detecté una dirección en Estados Unidos. Solo realizamos entregas en Colombia.' },
-    { pattern: /\b(usa|united states|america|us|ny|ca|tx|fl|il|pa|oh|ga|nc|mi|nj|va|wa|az|ma|tn|in|mo|md|wi|co|mn|sc|al|la|ky|or|ok|ct|ia|ms|ar|ut|ks|nv|nm|ne|wv|id|hi|nh|me|ri|mt|de|sd|nd|ak|vt|wy)\b/i, country: 'Estados Unidos', message: '🇺🇸 Detecté una dirección en Estados Unidos. Solo realizamos entregas en Colombia.' },
-
-    // España
-    { pattern: /\b(madrid|barcelona|valencia|sevilla|zaragoza|málaga|murcia|palma|las palmas|bilbao|alicante|córdoba|valladolid|vigo|gijón|hospitalet|vitoria|granada|elche|oviedo|badalona|cartagena|terrassa|jerez|sabadell|móstoles|alcalá|pamplona|fuenlabrada|almería|leganés)\b/i, country: 'España', message: '🇪🇸 Detecté una dirección en España. Solo realizamos entregas en Colombia.' },
-    { pattern: /\b(españa|spain|spanish|espana)\b/i, country: 'España', message: '🇪🇸 Detecté una dirección en España. Solo realizamos entregas en Colombia.' },
-
-    // México
-    { pattern: /\b(méxico|mexico|ciudad de méxico|guadalajara|monterrey|puebla|tijuana|león|juárez|zapopan|nezahualcóyotl|chihuahua|naucalpan|mérida|san luis potosí|aguascalientes|hermosillo|saltillo|mexicali|culiacán|acapulco|tlalnepantla|cancún|querétaro|chimalhuacán|reynosa|tlaquepaque|tuxtla|victoria|durango|toluca|morelia|xalapa|veracruz|villahermosa|irapuato|cuernavaca|oaxaca|tampico|mazatlán|coatzacoalcos)\b/i, country: 'México', message: '🇲🇽 Detecté una dirección en México. Solo realizamos entregas en Colombia.' },
-
-    // Argentina
-    { pattern: /\b(argentina|buenos aires|córdoba|rosario|mendoza|tucumán|la plata|mar del plata|salta|santa fe|san juan|neuquén|resistencia|santiago del estero|corrientes|posadas|bahía blanca|paraná|formosa|san luis|la rioja|río cuarto|comodoro rivadavia|san rafael|concordia|san salvador)\b/i, country: 'Argentina', message: '🇦🇷 Detecté una dirección en Argentina. Solo realizamos entregas en Colombia.' },
-
-    // Brasil
-    { pattern: /\b(brasil|brazil|são paulo|rio de janeiro|brasília|salvador|fortaleza|belo horizonte|manaus|curitiba|recife|goiânia|belém|porto alegre|guarulhos|campinas|nova iguaçu|maceió|são luís|duque de caxias|natal|teresina|campo grande|são bernardo|santos|joão pessoa|jaboatão|osasco|ribeirão preto|uberlândia|sorocaba|contagem|aracaju|feira de santana|cuiabá|joinville|juiz de fora|londrina|niterói|porto velho|florianópolis|serra|vila velha|caxias do sul|macapá|pelotas|canoas|vitória|carapicuíba|jundiaí|piracicaba|cariacica|franca|anápolis|bauru|itaquaquecetuba|são vicente|petrópolis|vitória da conquista|ponta grossa|blumenau|boa vista|cascavel|paulista|santa maria|guarujá|são josé do rio preto|mogi das cruzes|diadema|betim|campina grande|maringá|olinda|são joão de meriti|são josé dos campos|jequié|montes claros|suzano|gravataí|taboão da serra|sobral|são leopoldo|dourados|americana|rio branco|presidente prudente|novo hamburgo|santa bárbara d\'oeste|são caetano do sul|praia grande|jahu|rio das ostras|barueri|embu|francisco morato|itu|bragança paulista|passo fundo|santa cruz do sul|cachoeirinha|lages|sapucaia do sul|botucatu|santo andré|são carlos|jaú|marília|araraquara|rio claro|limeira|indaiatuba|presidente prudente|santa rita do sapucaí|araçatuba|votorantim|taubaté|são josé dos pinhais|cotia|itapevi|são mateus|colombo|guaratinguetá|itapetininga|franco da rocha|várzea grande|santarém|cabo frio|nova friburgo|águas lindas|valparaíso|trindade|aparecida de goiânia|rio verde|catalão|itumbiara|anápolis|goiânia|luziânia|senador canedo|santa cruz)\b/i, country: 'Brasil', message: '🇧🇷 Detecté una dirección en Brasil. Solo realizamos entregas en Colombia.' },
-
-    // Chile
-    { pattern: /\b(chile|santiago|valparaíso|concepción|la serena|antofagasta|temuco|rancagua|talca|arica|chillán|iquique|los ángeles|puerto montt|calama|coquimbo|osorno|valdivia|punta arenas|copiapó|quillota|curicó|ovalle|san antonio|melipilla|san felipe|linares|tarapacá|cauquenes|castro|ancud|villarrica|angol|traiguén|lautaro|nueva imperial|padre las casas|gorbea|pitrufquén|freire|cunco|curacautín|lonquimay|collipulli|ercilla|renaico|los sauces|mulchén|nacimiento|santa bárbara|quilaco|quilleco|san rosendo|laja|yumbel|cabrero|tucapel|antuco|san ignacio|el carmen|pemuco|bulnes|quillón|ñipas|coelemu|trehuaco|portezuelo|coihueco|pinto|san nicolás|ñiquén|san carlos|ninhue|quirihue|cobquecura|pedro quintana|diego de almagro|huasco|freirina|caldera|tierra amarilla|vallenar)\b/i, country: 'Chile', message: '🇨🇱 Detecté una dirección en Chile. Solo realizamos entregas en Colombia.' },
-
-    // Otros países comunes
-    { pattern: /\b(france|francia|paris|lyon|marseille)\b/i, country: 'Francia', message: '🇫🇷 Detecté una dirección en Francia. Solo realizamos entregas en Colombia.' },
-    { pattern: /\b(italy|italia|rome|milan|naples|turin)\b/i, country: 'Italia', message: '🇮🇹 Detecté una dirección en Italia. Solo realizamos entregas en Colombia.' },
-    { pattern: /\b(germany|alemania|berlin|hamburg|munich|cologne)\b/i, country: 'Alemania', message: '🇩🇪 Detecté una dirección en Alemania. Solo realizamos entregas en Colombia.' },
-    { pattern: /\b(canada|toronto|montreal|vancouver|ottawa|calgary)\b/i, country: 'Canadá', message: '🇨🇦 Detecté una dirección en Canadá. Solo realizamos entregas en Colombia.' },
-    { pattern: /\b(uk|united kingdom|london|manchester|birmingham|glasgow|liverpool)\b/i, country: 'Reino Unido', message: '🇬🇧 Detecté una dirección en Reino Unido. Solo realizamos entregas en Colombia.' },
-
-    // Patrones generales de direcciones internacionales
-    { pattern: /\b\d+\s+(st|street|ave|avenue|blvd|boulevard|rd|road|ln|lane|dr|drive|ct|court|pl|place|way)\b/i, country: 'Internacional', message: '🌍 Esta dirección parece ser internacional. Solo realizamos entregas en Colombia.' },
-    { pattern: /\b(zip code|postal code|postcode)\s*:?\s*\d+/i, country: 'Internacional', message: '🌍 Detecté un código postal internacional. Solo realizamos entregas en Colombia.' }
-  ];
-
-  // Buscar patrones internacionales
-  for (const { pattern, country, message } of internationalPatterns) {
-    if (pattern.test(lowercaseAddress)) {
-      return {
-        isInternational: true,
-        country,
-        message
-      };
-    }
-  }
-
-  return { isInternational: false };
 }

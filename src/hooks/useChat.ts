@@ -480,9 +480,6 @@ export function useChat() {
         } else {
           return `📱 El teléfono debe tener 10 dígitos. Por favor intenta de nuevo:\n\n📝 Formato: nombre, teléfono, producto\n💡 Ejemplo: Juan Pérez, 3001234567, pollo entero`;
         }
-      } else {
-        return `📝 Necesito más información. Por favor usa este formato:\n\n**nombre, teléfono, producto**\n💡 Ejemplo: Juan Pérez, 3001234567, pollo entero`;
-      }
     } else {
       // Handle single responses or quick replies
       if (userMessage.toLowerCase().includes('productos disponibles') || userMessage.toLowerCase().includes('ver productos')) {
@@ -505,7 +502,7 @@ export function useChat() {
           return 'Error consultando productos. Llámanos al (4) 123-4567';
         }
       }
-      
+
       return `📝 Para continuar con tu pedido, necesito estos datos en este formato:\n\n**nombre, teléfono, producto**\n💡 Ejemplo: Juan Pérez, 3001234567, pollo entero\n\n🍗 O escribe "ver productos" para ver el menú disponible`;
     }
   };

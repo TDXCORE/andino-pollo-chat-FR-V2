@@ -313,10 +313,27 @@ function detectInternationalAddress(address: string): {
 } {
   const lowercaseAddress = address.toLowerCase();
 
+  // PRIMERO: Verificar si hay indicadores claros de que es dirección colombiana
+  const colombianIndicators = [
+    /\b(colombia|bogot[aá]|medell[ií]n|cali|barranquilla|cartagena|bucaramanga|pereira|manizales|villavicencio|santa marta|pasto|c[ua]cuta|ibagu[eé]|soledad|soacha|monteria|valledupar|bello|itagui|palmi[ra]|sincelejo|envigado|tunja|florencia|maicao|riohacha|arauca|yopal|mocoa|leticia|puerto carre[ñn]o|mit[ua]|san jos[eé] del guaviare|quibd[oó]|puerto in[ií]rida|san andr[eé]s)\b/i,
+    /\b(cundinamarca|antioquia|valle del cauca|atlantico|bolivar|santander|nari[ñn]o|cordoba|tolima|huila|norte de santander|cauca|magdalena|la guajira|boyaca|casanare|meta|sucre|cesar|caldas|risaralda|quindio|choco|caqueta|putumayo|arauca|amazonas|guainia|guaviare|vaupES|vichada|san andres)\b/i,
+    /\b(cra|carrera|calle|cl|kr|dg|diagonal|tv|transversal|av|avenida)\s*\d+/i
+  ];
+
+  // Si tiene indicadores colombianos fuertes, NO es internacional
+  const hasColombianIndicators = colombianIndicators.some(pattern => pattern.test(lowercaseAddress));
+  console.log(`Colombian indicators check for "${address}": ${hasColombianIndicators}`);
+
+  if (hasColombianIndicators) {
+    return { isInternational: false };
+  }
+
   // Patrones de países y ciudades internacionales comunes
   const internationalPatterns = [
-    // Estados Unidos
-    { pattern: /\b(new york|manhattan|brooklyn|los angeles|miami|chicago|houston|phoenix|philadelphia|san antonio|san diego|dallas|san jose|austin|jacksonville|fort worth|columbus|charlotte|detroit|el paso|seattle|denver|washington dc|boston|nashville|baltimore|oklahoma city|portland|las vegas|louisville|milwaukee|albuquerque|tucson|fresno|sacramento|mesa|kansas city|atlanta|long beach|colorado springs|raleigh|virginia beach|omaha|minneapolis|tulsa|cleveland|wichita|arlington)\b/i, country: 'Estados Unidos', message: '🇺🇸 Detecté una dirección en Estados Unidos. Solo realizamos entregas en Colombia.' },
+    // Estados Unidos - Patrones más específicos para evitar conflictos con nombres colombianos
+    { pattern: /\b(new york|manhattan|brooklyn|los angeles|miami|chicago|houston|phoenix|philadelphia|dallas|austin|jacksonville|fort worth|columbus|charlotte|detroit|el paso|seattle|denver|washington dc|boston|nashville|baltimore|oklahoma city|portland|las vegas|louisville|milwaukee|albuquerque|tucson|fresno|sacramento|mesa|kansas city|atlanta|long beach|colorado springs|raleigh|virginia beach|omaha|minneapolis|tulsa|cleveland|wichita|arlington)\b/i, country: 'Estados Unidos', message: '🇺🇸 Detecté una dirección en Estados Unidos. Solo realizamos entregas en Colombia.' },
+    // Patrones de Estados Unidos con contexto (evitar san antonio y san diego sin contexto)
+    { pattern: /\bsan (antonio|diego),?\s+(california|texas|ca|tx|usa|united states)\b/i, country: 'Estados Unidos', message: '🇺🇸 Detecté una dirección en Estados Unidos. Solo realizamos entregas en Colombia.' },
     { pattern: /\b(usa|united states|america|us|ny|ca|tx|fl|il|pa|oh|ga|nc|mi|nj|va|wa|az|ma|tn|in|mo|md|wi|co|mn|sc|al|la|ky|or|ok|ct|ia|ms|ar|ut|ks|nv|nm|ne|wv|id|hi|nh|me|ri|mt|de|sd|nd|ak|vt|wy)\b/i, country: 'Estados Unidos', message: '🇺🇸 Detecté una dirección en Estados Unidos. Solo realizamos entregas en Colombia.' },
 
     // España
@@ -332,8 +349,10 @@ function detectInternationalAddress(address: string): {
     // Brasil
     { pattern: /\b(brasil|brazil|são paulo|rio de janeiro|brasília|salvador|fortaleza|belo horizonte|manaus|curitiba|recife|goiânia|belém|porto alegre|guarulhos|campinas|nova iguaçu|maceió|são luís|duque de caxias|natal|teresina|campo grande|são bernardo|santos|joão pessoa|jaboatão|osasco|ribeirão preto|uberlândia|sorocaba|contagem|aracaju|feira de santana|cuiabá|joinville|juiz de fora|londrina|niterói|porto velho|florianópolis|serra|vila velha|caxias do sul|macapá|pelotas|canoas|vitória|carapicuíba|jundiaí|piracicaba|cariacica|franca|anápolis|bauru|itaquaquecetuba|são vicente|petrópolis|vitória da conquista|ponta grossa|blumenau|boa vista|cascavel|paulista|santa maria|guarujá|são josé do rio preto|mogi das cruzes|diadema|betim|campina grande|maringá|olinda|são joão de meriti|são josé dos campos|jequié|montes claros|suzano|gravataí|taboão da serra|sobral|são leopoldo|dourados|americana|rio branco|presidente prudente|novo hamburgo|santa bárbara d\'oeste|são caetano do sul|praia grande|jahu|rio das ostras|barueri|embu|francisco morato|itu|bragança paulista|passo fundo|santa cruz do sul|cachoeirinha|lages|sapucaia do sul|botucatu|santo andré|são carlos|jaú|marília|araraquara|rio claro|limeira|indaiatuba|presidente prudente|santa rita do sapucaí|araçatuba|votorantim|taubaté|são josé dos pinhais|cotia|itapevi|são mateus|colombo|guaratinguetá|itapetininga|franco da rocha|várzea grande|santarém|cabo frio|nova friburgo|águas lindas|valparaíso|trindade|aparecida de goiânia|rio verde|catalão|itumbiara|anápolis|goiânia|luziânia|senador canedo|santa cruz)\b/i, country: 'Brasil', message: '🇧🇷 Detecté una dirección en Brasil. Solo realizamos entregas en Colombia.' },
 
-    // Chile
-    { pattern: /\b(chile|santiago|valparaíso|concepción|la serena|antofagasta|temuco|rancagua|talca|arica|chillán|iquique|los ángeles|puerto montt|calama|coquimbo|osorno|valdivia|punta arenas|copiapó|quillota|curicó|ovalle|san antonio|melipilla|san felipe|linares|tarapacá|cauquenes|castro|ancud|villarrica|angol|traiguén|lautaro|nueva imperial|padre las casas|gorbea|pitrufquén|freire|cunco|curacautín|lonquimay|collipulli|ercilla|renaico|los sauces|mulchén|nacimiento|santa bárbara|quilaco|quilleco|san rosendo|laja|yumbel|cabrero|tucapel|antuco|san ignacio|el carmen|pemuco|bulnes|quillón|ñipas|coelemu|trehuaco|portezuelo|coihueco|pinto|san nicolás|ñiquén|san carlos|ninhue|quirihue|cobquecura|pedro quintana|diego de almagro|huasco|freirina|caldera|tierra amarilla|vallenar)\b/i, country: 'Chile', message: '🇨🇱 Detecté una dirección en Chile. Solo realizamos entregas en Colombia.' },
+    // Chile - Removiendo nombres ambiguos que existen en Colombia
+    { pattern: /\b(chile|santiago|valparaíso|concepción|la serena|antofagasta|temuco|rancagua|talca|arica|chillán|iquique|puerto montt|calama|coquimbo|osorno|valdivia|punta arenas|copiapó|quillota|curicó|ovalle|melipilla|san felipe|linares|tarapacá|cauquenes|castro|ancud|villarrica|angol|traiguén|lautaro|nueva imperial|padre las casas|gorbea|pitrufquén|freire|cunco|curacautín|lonquimay|collipulli|ercilla|renaico|los sauces|mulchén|nacimiento|quilaco|quilleco|san rosendo|laja|yumbel|cabrero|tucapel|antuco|san ignacio|el carmen|pemuco|bulnes|quillón|ñipas|coelemu|trehuaco|portezuelo|coihueco|pinto|san nicolás|ñiquén|san carlos|ninhue|quirihue|cobquecura|pedro quintana|diego de almagro|huasco|freirina|caldera|tierra amarilla|vallenar)\b/i, country: 'Chile', message: '🇨🇱 Detecté una dirección en Chile. Solo realizamos entregas en Colombia.' },
+    // Chile con contexto específico
+    { pattern: /\bsan antonio,?\s+(chile|región de valparaíso)\b/i, country: 'Chile', message: '🇨🇱 Detecté una dirección en Chile. Solo realizamos entregas en Colombia.' },
 
     // Otros países comunes
     { pattern: /\b(france|francia|paris|lyon|marseille)\b/i, country: 'Francia', message: '🇫🇷 Detecté una dirección en Francia. Solo realizamos entregas en Colombia.' },
@@ -350,6 +369,7 @@ function detectInternationalAddress(address: string): {
   // Buscar patrones internacionales
   for (const { pattern, country, message } of internationalPatterns) {
     if (pattern.test(lowercaseAddress)) {
+      console.log(`International pattern match for "${address}": ${country} (pattern: ${pattern})`);
       return {
         isInternational: true,
         country,
@@ -358,5 +378,6 @@ function detectInternationalAddress(address: string): {
     }
   }
 
+  console.log(`No international patterns matched for "${address}"`);
   return { isInternational: false };
 }

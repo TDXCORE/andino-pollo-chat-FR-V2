@@ -127,9 +127,10 @@ export function useChat() {
     if (result.isValid) {
       setChatState({
         currentStep: 'confirming_address',
-        pendingAddress: { 
-          original: originalInput, 
-          suggestions: confirmationResponse.suggestions || [confirmationResponse.addressData!].filter(Boolean)
+        pendingAddress: {
+          original: originalInput,
+          suggestions: confirmationResponse.suggestions || [confirmationResponse.addressData!].filter(Boolean),
+          attemptCount: 0
         }
       });
     } else {
@@ -149,9 +150,24 @@ export function useChat() {
     }
 
     const lowerResponse = userResponse.toLowerCase();
-    
-    // Detectar confirmación positiva - ampliado para capturar más variaciones y errores de tipeo
-    const isConfirmation = lowerResponse.includes('sí') ||
+
+    // Detectar rechazo PRIMERO (más específico)
+    const isRejection = lowerResponse.includes('no es correcta') ||
+                       lowerResponse.includes('no es correcto') ||
+                       lowerResponse.includes('no está correcta') ||
+                       lowerResponse.includes('no está correcto') ||
+                       lowerResponse.includes('incorrecta') ||
+                       lowerResponse.includes('incorrecto') ||
+                       lowerResponse.includes('no, ') ||  // "no, esa no es"
+                       lowerResponse.startsWith('no ') ||  // "no esa no es"
+                       lowerResponse === 'no' ||
+                       lowerResponse.includes('❌') ||
+                       lowerResponse.includes('ninguna es correcta') ||
+                       lowerResponse.includes('ninguna está correcta');
+
+    // Detectar confirmación positiva (solo si NO es rechazo)
+    const isConfirmation = !isRejection && (
+                         lowerResponse.includes('sí') ||
                          lowerResponse.includes('si') ||
                          lowerResponse.includes('correcta') ||
                          lowerResponse.includes('correcto') ||
@@ -166,13 +182,8 @@ export function useChat() {
                          lowerResponse.includes('perfecto') ||
                          lowerResponse.includes('exacto') ||
                          lowerResponse.includes('así es') ||
-                         lowerResponse.includes('bien');
-
-    // Detectar rechazo
-    const isRejection = lowerResponse.includes('no') || 
-                       lowerResponse.includes('❌') ||
-                       lowerResponse.includes('incorrecto') ||
-                       lowerResponse.includes('incorrecta');
+                         lowerResponse.includes('bien')
+                       );
 
     if (isConfirmation) {
       console.log('User confirmed address, starting location validation');
@@ -188,13 +199,63 @@ export function useChat() {
       
     } else if (isRejection) {
       console.log('User rejected address, asking for new one');
-      // Usuario rechazó - pedir dirección de nuevo
-      setChatState({ currentStep: 'waiting_for_address' });
-      addMessage({
-        message: '📝 Por favor, escribe tu dirección de nuevo con más detalles:\n\n💡 Ejemplo: Carrera 15 # 93-07, Chapinero, Bogotá',
-        isUser: false,
-        timestamp: new Date()
-      });
+      const currentAttempts = pendingAddress.attemptCount || 0;
+      const maxAttempts = 3;
+
+      if (currentAttempts < maxAttempts - 1) {
+        // Aún permite más intentos
+        console.log(`Address attempt ${currentAttempts + 1}/${maxAttempts}`);
+        setChatState({
+          currentStep: 'waiting_for_address',
+          pendingAddress: {
+            ...pendingAddress,
+            attemptCount: currentAttempts + 1
+          }
+        });
+
+        const attemptMessage = currentAttempts === 0
+          ? '📝 Por favor, escribe tu dirección de nuevo con más detalles:\n\n💡 Ejemplo: Carrera 15 # 93-07, Chapinero, Bogotá'
+          : `📝 Intenta con una dirección más específica (intento ${currentAttempts + 2}/${maxAttempts}):\n\n💡 Incluye el barrio o puntos de referencia\n📍 Ejemplo: Cra 42A # 30-08, San Diego, Medellín`;
+
+        addMessage({
+          message: attemptMessage,
+          isUser: false,
+          timestamp: new Date()
+        });
+      } else {
+        // Se agotaron los intentos - mostrar todas las opciones disponibles
+        console.log('Max attempts reached, showing all available options');
+        if (pendingAddress.suggestions && pendingAddress.suggestions.length > 1) {
+          const allOptionsText = pendingAddress.suggestions
+            .map((suggestion, index) => `${index + 1}. ${suggestion.formatted}`)
+            .join('\n');
+
+          addMessage({
+            message: `🔍 He encontrado estas direcciones similares. Por favor selecciona la correcta:\n\n${allOptionsText}\n\nEscribe el número de la opción correcta:`,
+            isUser: false,
+            timestamp: new Date(),
+            quickReplies: ['1️⃣', '2️⃣', '3️⃣', '❌ Ninguna es correcta'],
+            metadata: { addressSuggestions: pendingAddress.suggestions }
+          });
+
+          // Mantener estado de confirmación para manejar la selección
+          setChatState({
+            currentStep: 'confirming_address',
+            pendingAddress: {
+              ...pendingAddress,
+              attemptCount: currentAttempts + 1
+            }
+          });
+        } else {
+          // No hay más opciones, pedir dirección completamente nueva
+          setChatState({ currentStep: 'waiting_for_address' });
+          addMessage({
+            message: '😔 No logro encontrar tu dirección. ¿Podrías intentar con una dirección diferente o más específica?\n\n💡 Incluye barrio, referencias cercanas, o verifica la ortografía',
+            isUser: false,
+            timestamp: new Date()
+          });
+        }
+      }
       
     } else if (['1️⃣', '2️⃣', '3️⃣'].includes(userResponse) || detectOptionSelection(userResponse)) {
       console.log('User selected option:', userResponse);
@@ -696,14 +757,16 @@ export function useChat() {
       /(?:n[uú]mero\s*)?(\d+)/,  // "numero 1", "número 2"
       /(?:la\s*)?(?:primera|1)/, // "primera", "la primera", "1"
       /(?:la\s*)?(?:segunda|2)/, // "segunda", "la segunda", "2"
-      /(?:la\s*)?(?:tercera|3)/  // "tercera", "la tercera", "3"
+      /(?:la\s*)?(?:tercera|3)/, // "tercera", "la tercera", "3"
+      /(?:la\s*)?(?:cuarta|4)/,  // "cuarta", "la cuarta", "4"
+      /(?:la\s*)?(?:quinta|5)/   // "quinta", "la quinta", "5"
     ];
 
-    // Buscar números directos (1, 2, 3)
+    // Buscar números directos (1-10)
     const directNumber = lowerResponse.match(/^(\d+)$/);
     if (directNumber) {
       const num = parseInt(directNumber[1]);
-      if (num >= 1 && num <= 3) return num;
+      if (num >= 1 && num <= 10) return num; // Expandido hasta 10 opciones
     }
 
     // Buscar patrones con texto
@@ -712,12 +775,14 @@ export function useChat() {
       if (match) {
         if (match[1]) {
           const num = parseInt(match[1]);
-          if (num >= 1 && num <= 3) return num;
+          if (num >= 1 && num <= 10) return num; // Expandido hasta 10 opciones
         } else {
-          // Casos especiales para primera/segunda/tercera
+          // Casos especiales para palabras
           if (lowerResponse.includes('primera') || lowerResponse.includes('1')) return 1;
           if (lowerResponse.includes('segunda') || lowerResponse.includes('2')) return 2;
           if (lowerResponse.includes('tercera') || lowerResponse.includes('3')) return 3;
+          if (lowerResponse.includes('cuarta') || lowerResponse.includes('4')) return 4;
+          if (lowerResponse.includes('quinta') || lowerResponse.includes('5')) return 5;
         }
       }
     }

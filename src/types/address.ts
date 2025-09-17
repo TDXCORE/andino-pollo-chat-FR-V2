@@ -59,6 +59,7 @@ export interface PendingAddress {
   original: string;
   suggestions: AddressSuggestion[];
   confirmed?: AddressSuggestion;
+  attemptCount?: number;
 }
 
 export interface DeliveryInfo {

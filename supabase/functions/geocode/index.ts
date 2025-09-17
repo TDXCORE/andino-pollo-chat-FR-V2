@@ -150,7 +150,6 @@ serve(async (req) => {
 
     // 5. Procesar y filtrar resultados - Validación mejorada de país
     const suggestions: AddressSuggestion[] = data.results
-      .slice(0, 3) // Máximo 3 sugerencias
       .filter((result: any) => {
         // Validación robusta de país
         const countryComponent = result.address_components?.find((comp: any) =>
@@ -183,7 +182,10 @@ serve(async (req) => {
           confidence,
           components
         };
-      });
+      })
+      .slice(0, 10); // Límite máximo de 10 opciones para evitar respuestas demasiado largas
+
+    console.log(`Processed ${suggestions.length} valid Colombian addresses from Google API`);
 
     // 6. Guardar en caché el mejor resultado
     if (suggestions.length > 0) {

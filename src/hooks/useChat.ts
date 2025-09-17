@@ -139,6 +139,9 @@ export function useChat() {
 
   const handleAddressConfirmation = async (userResponse: string) => {
     console.log('Processing address confirmation:', userResponse);
+    console.log('Current chat state:', chatState);
+    console.log('Pending address suggestions:', chatState.pendingAddress?.suggestions?.length);
+
     const { pendingAddress } = chatState;
     if (!pendingAddress) {
       console.log('No pending address found');
@@ -147,15 +150,22 @@ export function useChat() {
 
     const lowerResponse = userResponse.toLowerCase();
     
-    // Detectar confirmación positiva - ampliado para capturar más variaciones
-    const isConfirmation = lowerResponse.includes('sí') || 
+    // Detectar confirmación positiva - ampliado para capturar más variaciones y errores de tipeo
+    const isConfirmation = lowerResponse.includes('sí') ||
                          lowerResponse.includes('si') ||
                          lowerResponse.includes('correcta') ||
                          lowerResponse.includes('correcto') ||
+                         lowerResponse.includes('orrecta') ||  // Error tipográfico común
+                         lowerResponse.includes('orrecto') ||  // Error tipográfico común
+                         lowerResponse.includes('corecta') ||  // Error tipográfico común
                          lowerResponse.includes('confirmado') ||
                          lowerResponse.includes('confirmo') ||
                          lowerResponse.includes('✅') ||
                          lowerResponse.includes('ok') ||
+                         lowerResponse.includes('vale') ||
+                         lowerResponse.includes('perfecto') ||
+                         lowerResponse.includes('exacto') ||
+                         lowerResponse.includes('así es') ||
                          lowerResponse.includes('bien');
 
     // Detectar rechazo
@@ -186,19 +196,35 @@ export function useChat() {
         timestamp: new Date()
       });
       
-    } else if (['1️⃣', '2️⃣', '3️⃣'].includes(userResponse)) {
+    } else if (['1️⃣', '2️⃣', '3️⃣'].includes(userResponse) || detectOptionSelection(userResponse)) {
       console.log('User selected option:', userResponse);
+      console.log('Option detection result:', detectOptionSelection(userResponse));
       // Usuario seleccionó una opción específica
-      const selectedIndex = parseInt(userResponse[0]) - 1;
+      let selectedIndex = -1;
+
+      if (['1️⃣', '2️⃣', '3️⃣'].includes(userResponse)) {
+        selectedIndex = parseInt(userResponse[0]) - 1;
+        console.log('Using emoji selection, index:', selectedIndex);
+      } else {
+        selectedIndex = detectOptionSelection(userResponse) - 1;
+        console.log('Using text detection, index:', selectedIndex);
+      }
+
       const selectedAddress = pendingAddress.suggestions[selectedIndex];
-      
+
       if (selectedAddress) {
+        addMessage({
+          message: `✅ Perfecto! Seleccionaste:\n\n📍 **${selectedAddress.formatted}**\n\nVerificando cobertura de entrega...`,
+          isUser: false,
+          timestamp: new Date()
+        });
+
         setChatState(prev => ({
           ...prev,
           currentStep: 'validating_location',
           pendingAddress: { ...prev.pendingAddress!, confirmed: selectedAddress }
         }));
-        
+
         await validateDeliveryRadius(selectedAddress);
       }
     } else {
@@ -659,6 +685,45 @@ export function useChat() {
       setIsLoading(false);
     }
   }, [messages, sessionId, chatState, toast]);
+
+  // Función auxiliar para detectar selección de opciones numéricas
+  const detectOptionSelection = (userResponse: string): number => {
+    const lowerResponse = userResponse.toLowerCase();
+
+    // Buscar patrones de números explícitos
+    const numberPatterns = [
+      /(?:opci[oó]n\s*)?(\d+)/,  // "opcion 1", "opción 2"
+      /(?:n[uú]mero\s*)?(\d+)/,  // "numero 1", "número 2"
+      /(?:la\s*)?(?:primera|1)/, // "primera", "la primera", "1"
+      /(?:la\s*)?(?:segunda|2)/, // "segunda", "la segunda", "2"
+      /(?:la\s*)?(?:tercera|3)/  // "tercera", "la tercera", "3"
+    ];
+
+    // Buscar números directos (1, 2, 3)
+    const directNumber = lowerResponse.match(/^(\d+)$/);
+    if (directNumber) {
+      const num = parseInt(directNumber[1]);
+      if (num >= 1 && num <= 3) return num;
+    }
+
+    // Buscar patrones con texto
+    for (const pattern of numberPatterns) {
+      const match = lowerResponse.match(pattern);
+      if (match) {
+        if (match[1]) {
+          const num = parseInt(match[1]);
+          if (num >= 1 && num <= 3) return num;
+        } else {
+          // Casos especiales para primera/segunda/tercera
+          if (lowerResponse.includes('primera') || lowerResponse.includes('1')) return 1;
+          if (lowerResponse.includes('segunda') || lowerResponse.includes('2')) return 2;
+          if (lowerResponse.includes('tercera') || lowerResponse.includes('3')) return 3;
+        }
+      }
+    }
+
+    return 0; // No se detectó ninguna opción válida
+  };
 
   return {
     messages,
